@@ -1,0 +1,47 @@
+name:                pusher
+version:             0.1.0.0
+synopsis:            Simple REST service for sending browser push notifications
+description:         Please see README.md
+homepage:            http://github.com/nymacro/pusher#readme
+license:             BSD3
+license-file:        LICENSE
+author:              Aaron Marks
+maintainer:          nymacro@gmail.com
+copyright:           2016 Aaron Marks
+category:            Web
+build-type:          Simple
+cabal-version:       >=1.10
+
+executable pusher
+  hs-source-dirs:      src
+  main-is:             Main.hs
+  default-language:    Haskell2010
+  ghc-options:         -Wall
+  other-modules:       Pusher.App
+                     , Pusher.Database
+                     , Pusher.Config
+                     , Pusher.Scripts
+  build-depends:       base >= 4.7 && < 5
+                     , Spock >= 0.10
+                     , persistent
+                     , persistent-postgresql
+                     , persistent-template
+                     , shakespeare
+                     , transformers
+                     , monad-logger
+                     , wai
+                     , wai-middleware-static
+                     , wai-extra
+                     , text
+                     , http-types
+                     , cryptonite >= 0.12
+                     , aeson
+                     , base64-bytestring
+                     , wreq
+                     , bytestring
+                     , lens
+                     , resourcet
+                     , configurator
+                     , time
+                     , memory
+                     , ekg
