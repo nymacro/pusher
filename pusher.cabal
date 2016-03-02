@@ -34,7 +34,6 @@ executable pusher
                      , wai-extra
                      , text
                      , http-types
-                     , cryptonite >= 0.12
                      , aeson
                      , base64-bytestring
                      , wreq
