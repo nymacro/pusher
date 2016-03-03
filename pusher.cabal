@@ -16,7 +16,7 @@ executable pusher
   hs-source-dirs:      src
   main-is:             Main.hs
   default-language:    Haskell2010
-  ghc-options:         -Wall
+  ghc-options:         -Wall -O2 -H50m -rtsopts
   other-modules:       Pusher.App
                      , Pusher.Database
                      , Pusher.Config
@@ -29,6 +29,8 @@ executable pusher
                      , shakespeare
                      , transformers
                      , monad-logger
+                     , warp
+                     , warp-tls
                      , wai
                      , wai-middleware-static
                      , wai-extra

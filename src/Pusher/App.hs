@@ -50,7 +50,7 @@ import           GHC.Generics
 
 import           Pusher.Config
 import           Pusher.Database
-import           Pusher.Scripts
+import qualified Pusher.Scripts                       as Script
 
 -- | JSON response message for API endpoints
 data ResponseMsg = ErrorMsg   { errorMessage :: Text }
@@ -149,8 +149,8 @@ pusherApp config = do
   middleware pusherHeaders
   middleware $ staticPolicy $ addBase "static"
 
-  Spock.get "sw.js"     $ javaScript $ serviceWorker config
-  Spock.get "pusher.js" $ javaScript $ pusherScript config
+  Spock.get "sw.js"     $ javaScript $ Script.serviceWorker config
+  Spock.get "pusher.js" $ javaScript $ Script.pusherScript config
 
   Spock.post "subscribe" $ do
     msg <- jsonBody
