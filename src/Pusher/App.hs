@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeFamilies               #-}
 module Pusher.App (pusherApp, subscribe, module Pusher.Config) where
@@ -135,7 +136,14 @@ doPushSimple sub = do
       else error_ "user subscription has expired"
 
 -- simple helpers for response JSON messages
+success :: forall ctx (m :: * -> *) b.
+          MonadIO m =>
+          Text -> Spock.ActionCtxT ctx m b
 success msg = Spock.json $ SuccessMsg msg
+
+error_ :: forall ctx (m :: * -> *) b.
+         MonadIO m =>
+         Text -> Spock.ActionCtxT ctx m b
 error_  msg = Spock.json $ ErrorMsg msg
 
 -- simple helper to return JavaScript
