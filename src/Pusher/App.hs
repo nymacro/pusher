@@ -47,6 +47,10 @@ import           Control.Monad.Trans.Class
 import           Control.Monad.Trans.Resource
 import           Network.Wreq                         as Wreq
 
+import qualified System.Remote.Counter                as Ekg.Counter
+import qualified System.Remote.Gauge                  as Ekg.Gauge
+import qualified System.Remote.Monitoring             as Ekg
+
 import           GHC.Generics
 
 import           Pusher.Config
@@ -92,8 +96,11 @@ subscribe :: ( Control.Monad.IO.Class.MonadIO m
             , Spock.HasSpock (Spock.ActionCtxT ctx m)
             , Spock.SpockConn (Spock.ActionCtxT ctx m) ~ SqlBackend)
             => Pusher.App.SubscribeMsg
+            -> Maybe ServerMonitor
             -> Spock.ActionCtxT ctx m b
-subscribe msg = do
+subscribe msg monitor = do
+  liftIO $ flip (maybe (return ())) monitor $ \mon -> Ekg.Gauge.inc $ subscribeCounter mon
+
   time <- liftIO getCurrentTime
   let subscriber = Subscriber (name msg)
                               (endpoint msg)
@@ -111,8 +118,11 @@ unsubscribe :: ( MonadIO m
               , Spock.HasSpock (Spock.ActionCtxT ctx m)
               , Spock.SpockConn (Spock.ActionCtxT ctx m) ~ SqlBackend)
               => Pusher.App.SubscribeMsg
+              -> Maybe ServerMonitor
               -> Spock.ActionCtxT ctx m b
-unsubscribe msg = do
+unsubscribe msg monitor = do
+  liftIO $ flip (maybe (return ())) monitor $ \mon -> Ekg.Gauge.dec $ subscribeCounter mon
+
   runDB $ deleteWhere [SubscriberName ==. name msg]
   success "unsubscribed"
 
@@ -120,8 +130,11 @@ doPushSimple :: ( MonadIO m
                , Spock.HasSpock (Spock.ActionCtxT ctx m)
                , Spock.SpockConn (Spock.ActionCtxT ctx m) ~ SqlBackend)
                => Text
+               -> Maybe ServerMonitor
                -> Spock.ActionCtxT ctx m b
-doPushSimple sub = do
+doPushSimple sub monitor = do
+  liftIO $ flip (maybe (return ())) monitor $ \mon -> Ekg.Counter.inc $ pushCounter mon
+
   subscriber <- runDB $ selectFirst [SubscriberName ==. sub] []
   case subscriber of
     Nothing           -> error_ "invalid sub"
@@ -151,14 +164,16 @@ javaScript script = do
   Spock.setHeader "Content-Type" "text/javascript"
   Spock.lazyBytes $ LazyText.encodeUtf8 script
 
-pusherApp :: PusherCfg -> Spock.SpockM SqlBackend (Maybe a) () ()
+pusherApp :: ServerCfg -> Spock.SpockM SqlBackend (Maybe a) () ()
 pusherApp config = do
+  let pusherCfg = serverPushCfg config
+      monitor   = serverMonitor config
   middleware logStdout
   middleware pusherHeaders
   middleware $ staticPolicy $ addBase "static"
 
-  Spock.get "sw.js"     $ javaScript $ Script.serviceWorker config
-  Spock.get "pusher.js" $ javaScript $ Script.pusherScript config
+  Spock.get "sw.js"     $ javaScript $ Script.serviceWorker pusherCfg
+  Spock.get "pusher.js" $ javaScript $ Script.pusherScript pusherCfg
 
   Spock.post "subscribe" $ do
     msg <- jsonBody
@@ -166,8 +181,8 @@ pusherApp config = do
       Nothing -> setStatus status400
       Just m  -> do
         case statusType m of
-          "subscribe"   -> subscribe m
-          "unsubscribe" -> unsubscribe m
+          "subscribe"   -> subscribe m monitor
+          "unsubscribe" -> unsubscribe m monitor
           s             -> error_ $ "unhandled status type: " <> s
 
-  Spock.get ("push" <//> var) $ \sub -> doPushSimple sub
+  Spock.get ("push" <//> var) $ \sub -> doPushSimple sub monitor

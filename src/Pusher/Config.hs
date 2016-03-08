@@ -8,16 +8,21 @@ module Pusher.Config ( PusherCfg(..)
                      , toServerTlsCfg
                      , ServerMonCfg(..)
                      , toServerMonCfg
+                     , ServerMonitor(..)
                      , ServerCfg(..)
                      , toServerCfg ) where
 
 import           Data.ByteString
-import qualified Data.ByteString.Char8   as C8 (pack)
-import qualified Data.Configurator       as Cfg
-import qualified Data.Configurator.Types as Cfg
-import qualified Data.List               as List
+import qualified Data.ByteString.Char8    as C8 (pack)
+import qualified Data.Configurator        as Cfg
+import qualified Data.Configurator.Types  as Cfg
+import qualified Data.List                as List
 import           Data.Monoid
 import           Data.Text
+
+import qualified System.Remote.Counter    as Ekg.Counter
+import qualified System.Remote.Gauge      as Ekg.Gauge
+import qualified System.Remote.Monitoring as Ekg
 
 data PusherCfg = PusherCfg { pushTitle    :: Text
                            , pushMessage  :: Text
@@ -71,13 +76,20 @@ toServerMonCfg config = do
   port <- Cfg.lookup config "server.monitor.port"
   return $ ServerMonCfg <$> port
 
-data ServerCfg = ServerCfg { serverPort   :: Int
-                           , serverTlsCfg :: Maybe ServerTlsCfg
-                           , serverMonCfg :: Maybe ServerMonCfg }
+data ServerMonitor = ServerMonitor { monitor          :: Ekg.Server
+                                   , subscribeCounter :: Ekg.Gauge.Gauge
+                                   , pushCounter      :: Ekg.Counter.Counter }
+
+data ServerCfg = ServerCfg { serverPort    :: Int
+                           , serverPushCfg :: PusherCfg
+                           , serverTlsCfg  :: Maybe ServerTlsCfg
+                           , serverMonCfg  :: Maybe ServerMonCfg
+                           , serverMonitor :: Maybe ServerMonitor }
 
 toServerCfg :: Cfg.Config -> IO ServerCfg
 toServerCfg config = do
   port      <- Cfg.lookupDefault 8080 config "server.port"
   tlsConfig <- toServerTlsCfg config
   monConfig <- toServerMonCfg config
-  return $ ServerCfg port tlsConfig monConfig
+  pusherConfig <- toPusherCfg config
+  return $ ServerCfg port pusherConfig tlsConfig monConfig Nothing

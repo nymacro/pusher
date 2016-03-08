@@ -26,6 +26,7 @@ import           Control.Monad.Logger
 import           Network.Wai.Handler.Warp             (defaultSettings, setPort)
 import           Network.Wai.Handler.WarpTLS          (runTLS, tlsSettings)
 import           Network.Wai.Middleware.RequestLogger (logStdoutDev)
+import qualified System.Metrics                       as Ekg
 import qualified System.Remote.Monitoring             as Ekg
 
 import           Pusher.Config
@@ -34,25 +35,31 @@ main :: IO ()
 main = do
   config    <- Cfg.load [ Cfg.Required "pusher.cfg" ]
   dbConf    <- toDbConfig config
-  pusherCfg <- toPusherCfg config
   serverCfg <- toServerCfg config
 
   case toConnectionString <$> dbConf of
     Nothing -> putStrLn "Configuration incorrect"
     Just c  -> do
       -- start monitor if configuration present
-      flip (maybe (return ())) (serverMonCfg serverCfg) $ \cfg -> do
+      server <- flip (maybe (return Nothing)) (serverMonCfg serverCfg) $ \cfg -> do
         let monitorPort = serverMonPort cfg
-        Ekg.forkServer "localhost" monitorPort
         putStrLn ("Monitor is running on port " <> show monitorPort)
+        server <- Ekg.forkServer "localhost" monitorPort
 
-      start serverCfg pusherCfg c
+        -- set up metrics
+        subscribe <- Ekg.getGauge "subscribe" server
+        push <- Ekg.getCounter "push" server
 
-start :: ServerCfg  -- ^ server config
-      -> PusherCfg  -- ^ app config
+        return $ Just $ ServerMonitor { monitor = server
+                                      , subscribeCounter = subscribe
+                                      , pushCounter = push }
+
+      start serverCfg{serverMonitor = server} c
+
+start :: ServerCfg  -- ^ app config
       -> ByteString -- ^ DB connection string
       -> IO ()
-start config pusherCfg connStr = do
+start config connStr = do
   let port = serverPort config
 
   runStderrLoggingT $ do
@@ -60,7 +67,7 @@ start config pusherCfg connStr = do
     runSqlPool (runMigration migrateAll) pool
 
     let spockCfg  = Spock.defaultSpockCfg Nothing (Spock.PCPool pool) ()
-        app       = Spock.spock spockCfg (pusherApp pusherCfg)
+        app       = Spock.spock spockCfg (pusherApp config)
         startHttp = do
             putStrLn $ "Running HTTP on port " <> show port
             Spock.runSpockNoBanner port app

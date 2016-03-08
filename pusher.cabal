@@ -46,3 +46,4 @@ executable pusher
                      , time
                      , memory
                      , ekg
+                     , ekg-core
