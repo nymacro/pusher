@@ -9,6 +9,8 @@ module Pusher.Config ( PusherCfg(..)
                      , ServerMonCfg(..)
                      , toServerMonCfg
                      , ServerMonitor(..)
+                     , ServerMetrics(..)
+                     , defaultServerMetrics
                      , ServerCfg(..)
                      , toServerCfg ) where
 
@@ -20,6 +22,7 @@ import qualified Data.List                as List
 import           Data.Monoid
 import           Data.Text
 
+import qualified System.Metrics           as Ekg
 import qualified System.Remote.Counter    as Ekg.Counter
 import qualified System.Remote.Gauge      as Ekg.Gauge
 import qualified System.Remote.Monitoring as Ekg
@@ -76,9 +79,23 @@ toServerMonCfg config = do
   port <- Cfg.lookup config "server.monitor.port"
   return $ ServerMonCfg <$> port
 
-data ServerMonitor = ServerMonitor { monitor          :: Ekg.Server
-                                   , subscribeCounter :: Ekg.Gauge.Gauge
-                                   , pushCounter      :: Ekg.Counter.Counter }
+data ServerMonitor = ServerMonitor { monitor :: Ekg.Server
+                                   , metrics :: ServerMetrics }
+
+data ServerMetrics = ServerMetrics { metricRequests    :: Ekg.Counter.Counter
+                                   , metricSubscribe   :: Ekg.Counter.Counter
+                                   , metricUnsubscribe :: Ekg.Counter.Counter
+                                   , metricPush        :: Ekg.Counter.Counter
+                                   , metricFail        :: Ekg.Counter.Counter }
+
+defaultServerMetrics :: Ekg.Server -> IO ServerMetrics
+defaultServerMetrics server = do
+  requests    <- Ekg.getCounter "request" server
+  subscribe   <- Ekg.getCounter "subscribe" server
+  unsubscribe <- Ekg.getCounter "unsubscribe" server
+  push        <- Ekg.getCounter "push" server
+  fails       <- Ekg.getCounter "fail" server
+  return $ ServerMetrics requests subscribe unsubscribe push fails
 
 data ServerCfg = ServerCfg { serverPort    :: Int
                            , serverPushCfg :: PusherCfg

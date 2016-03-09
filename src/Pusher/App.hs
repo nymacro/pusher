@@ -92,6 +92,11 @@ runDB :: (Spock.HasSpock m, Spock.SpockConn m ~ SqlBackend) => SqlPersistT (NoLo
 runDB action = Spock.runQuery $ \conn ->
   runResourceT $ runNoLoggingT $ runSqlConn action conn
 
+-- | Perform action on metric
+withMetric metric action monitor =
+  liftIO $ flip (maybe (return ())) monitor $ \mon -> action $ metric (metrics mon)
+
+
 subscribe :: ( Control.Monad.IO.Class.MonadIO m
             , Spock.HasSpock (Spock.ActionCtxT ctx m)
             , Spock.SpockConn (Spock.ActionCtxT ctx m) ~ SqlBackend)
@@ -99,7 +104,7 @@ subscribe :: ( Control.Monad.IO.Class.MonadIO m
             -> Maybe ServerMonitor
             -> Spock.ActionCtxT ctx m b
 subscribe msg monitor = do
-  liftIO $ flip (maybe (return ())) monitor $ \mon -> Ekg.Gauge.inc $ subscribeCounter mon
+  withMetric metricSubscribe Ekg.Counter.inc monitor
 
   time <- liftIO getCurrentTime
   let subscriber = Subscriber (name msg)
@@ -121,7 +126,7 @@ unsubscribe :: ( MonadIO m
               -> Maybe ServerMonitor
               -> Spock.ActionCtxT ctx m b
 unsubscribe msg monitor = do
-  liftIO $ flip (maybe (return ())) monitor $ \mon -> Ekg.Gauge.dec $ subscribeCounter mon
+  withMetric metricUnsubscribe Ekg.Counter.inc monitor
 
   runDB $ deleteWhere [SubscriberName ==. name msg]
   success "unsubscribed"
@@ -133,8 +138,6 @@ doPushSimple :: ( MonadIO m
                -> Maybe ServerMonitor
                -> Spock.ActionCtxT ctx m b
 doPushSimple sub monitor = do
-  liftIO $ flip (maybe (return ())) monitor $ \mon -> Ekg.Counter.inc $ pushCounter mon
-
   subscriber <- runDB $ selectFirst [SubscriberName ==. sub] []
   case subscriber of
     Nothing           -> error_ "invalid sub"
@@ -144,7 +147,10 @@ doPushSimple sub monitor = do
       then do
         liftIO $ forkIO $ do
           r <- sendEmptyNotification (subscriberEndpoint s)
-          print r
+          case r ^. responseStatus of
+            Status 200 _ -> withMetric metricPush Ekg.Counter.inc monitor
+            Status 201 _ -> withMetric metricPush Ekg.Counter.inc monitor
+            _            -> withMetric metricFail Ekg.Counter.inc monitor
         success "submitted push"
       else error_ "user subscription has expired"
 
@@ -175,14 +181,15 @@ pusherApp config = do
   Spock.get "sw.js"     $ javaScript $ Script.serviceWorker pusherCfg
   Spock.get "pusher.js" $ javaScript $ Script.pusherScript pusherCfg
 
-  Spock.post "subscribe" $ do
-    msg <- jsonBody
-    case msg of
-      Nothing -> setStatus status400
-      Just m  -> do
-        case statusType m of
-          "subscribe"   -> subscribe m monitor
-          "unsubscribe" -> unsubscribe m monitor
-          s             -> error_ $ "unhandled status type: " <> s
+  Spock.prehook (withMetric metricRequests Ekg.Counter.inc monitor) $ do
+    Spock.post "subscribe" $ do
+      msg <- jsonBody
+      case msg of
+        Nothing -> setStatus status400
+        Just m  -> do
+          case statusType m of
+            "subscribe"   -> subscribe m monitor
+            "unsubscribe" -> unsubscribe m monitor
+            s             -> error_ $ "unhandled status type: " <> s
 
-  Spock.get ("push" <//> var) $ \sub -> doPushSimple sub monitor
+    Spock.get ("push" <//> var) $ \sub -> doPushSimple sub monitor

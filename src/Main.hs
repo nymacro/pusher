@@ -44,15 +44,10 @@ main = do
       server <- flip (maybe (return Nothing)) (serverMonCfg serverCfg) $ \cfg -> do
         let monitorPort = serverMonPort cfg
         putStrLn ("Monitor is running on port " <> show monitorPort)
-        server <- Ekg.forkServer "localhost" monitorPort
-
-        -- set up metrics
-        subscribe <- Ekg.getGauge "subscribe" server
-        push <- Ekg.getCounter "push" server
-
+        server  <- Ekg.forkServer "localhost" monitorPort
+        metrics <- defaultServerMetrics server
         return $ Just $ ServerMonitor { monitor = server
-                                      , subscribeCounter = subscribe
-                                      , pushCounter = push }
+                                      , metrics = metrics }
 
       start serverCfg{serverMonitor = server} c
 
